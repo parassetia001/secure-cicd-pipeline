@@ -1,15 +1,5 @@
 pipeline {
     agent any
-    environment {
-        GIT_CREDENTIALS = 'github-credentials'  // Use the ID of your stored credentials
-    }
-    stages {
-        stage('Clone Repository') {
-            steps {
-                git credentialsId: "${GIT_CREDENTIALS}", url: 'https://github.com/parassetia001/secure-cicd-pipeline.git'
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
                 sh 'docker build -t myapp:latest .'
