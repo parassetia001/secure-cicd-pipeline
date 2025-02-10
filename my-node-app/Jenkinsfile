@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Clone Repository') {
             steps {
-                git branch: 'main', url: 'https://github.com/parassetia001/secure-cicd-pipeline.git'
+                git branch: 'main', url: 'https://github.com/your-username/secure-cicd-pipeline.git'
             }
         }
 
@@ -16,7 +16,8 @@ pipeline {
 
         stage('Run Container') {
             steps {
-                sh 'docker run -d -p 8080:8080 myapp:latest'
+                // Run the container, mapping port 3000 inside the container to port 8081 on the host machine
+                sh 'docker run -d -p 8081:3000 myapp:latest'
             }
         }
     }
