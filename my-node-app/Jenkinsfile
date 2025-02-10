@@ -1,10 +1,12 @@
 pipeline {
     agent any
-
+    environment {
+        GIT_CREDENTIALS = 'github-credentials'  // Use the ID of your stored credentials
+    }
     stages {
         stage('Clone Repository') {
             steps {
-                git branch: 'main', url: 'https://github.com/your-username/secure-cicd-pipeline.git'
+                git credentialsId: "${GIT_CREDENTIALS}", url: 'https://github.com/parassetia001/secure-cicd-pipeline.git'
             }
         }
 
