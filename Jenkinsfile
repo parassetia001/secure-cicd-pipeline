@@ -9,7 +9,7 @@ pipeline {
         DEPLOYMENT_URL = "http://54.86.217.254:${APP_PORT}"
     }
     stages {
-        /* STAGE 1: Code Checkout * Uncomment and configure if you want to clone from GitHub/
+        // STAGE 1: Code Checkout Uncomment and configure if you want to clone from GitHub
         // stage('Code Checkout') {
         //     agent { label 'built-in' }
         //     steps {
