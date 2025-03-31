@@ -1,88 +1,109 @@
 pipeline {
-    agent any
+    agent none
     environment {
-        GIT_CREDENTIALS = 'github-credentials'  // Use the ID of your stored credentials
-        IMAGE_NAME = "myapp:latest"
+        GIT_CREDENTIALS = 'github-credentials'
+        IMAGE_NAME = "myapp:${BUILD_ID}"
         CONTAINER_NAME = "myapp_container"
         APP_PORT = "3000"
-        SONARQUBE_URL = 'http://34.42.40.184:9000'  // Replace with your SonarQube URL
+        SONARQUBE_URL = 'http://34.42.40.184:9000'
+        DEPLOYMENT_URL = "http://54.86.217.254:${APP_PORT}"
     }
     stages {
-        //Uncomment and configure if you want to clone from GitHub
-        // stage('Clone Repository') {
+        /* STAGE 1: Code Checkout * Uncomment and configure if you want to clone from GitHub/
+        // stage('Code Checkout') {
+        //     agent { label 'built-in' }
         //     steps {
-        //         git credentialsId: "${GIT_CREDENTIALS}", url: 'https://github.com/parassetia001/secure-cicd-pipeline.git', branch: 'main'
+        //         cleanWs()
+        //         checkout([
+        //             $class: 'GitSCM',
+        //             branches: [[name: '*/main']],
+        //             extensions: [],
+        //             userRemoteConfigs: [[
+        //                 credentialsId: "${GIT_CREDENTIALS}",
+        //                 url: 'https://github.com/parassetia001/secure-cicd-pipeline.git'
+        //             ]]
+        //         ])
         //     }
         // }
 
-        // SonarQube Analysis: Scan the code for quality analysis
+        /* STAGE 2: SonarQube Analysis */
         stage('SonarQube Analysis') {
+            agent { label 'built-in' }
             steps {
-                withSonarQubeEnv('SonarQube') { // Use your SonarQube configuration name here
+                withSonarQubeEnv('SonarQube') {
                     withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONARQUBE_TOKEN')]) {
-                        sh "npm install" // Install Node.js dependencies
                         sh """
-                            /opt/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=my-nodejs-app -Dsonar.sources=. -Dsonar.host.url=$SONARQUBE_URL -Dsonar.login=$SONARQUBE_TOKEN
+                            npm install
+                            /opt/sonar-scanner/bin/sonar-scanner \
+                                -Dsonar.projectKey=my-nodejs-app \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=$SONARQUBE_URL \
+                                -Dsonar.login=$SONARQUBE_TOKEN
                         """
                     }
                 }
             }
         }
 
-        // Quality Gate Check: Check if code passes SonarQube quality gate before proceeding
-        stage('Quality Gate Check') {
+        /* STAGE 3: Quality Gate */
+        stage('Quality Gate') {
+            agent { label 'built-in' }
             steps {
-                script {
-                    // Wait for the quality gate status before proceeding
+                timeout(time: 1, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        /* STAGE 4: Build & Deploy (Ubuntu Node) */
+        stage('Build & Deploy') {
+            agent { label 'ubuntu-deployer' }
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        credentialsId: "${GIT_CREDENTIALS}",
+                        url: 'https://github.com/parassetia001/secure-cicd-pipeline.git'
+                    ]]
+                ])
+                
+                sh """
+                    # Build and deploy
+                    docker build -t $IMAGE_NAME .
+                    docker stop $CONTAINER_NAME || true
+                    docker rm $CONTAINER_NAME || true
+                    docker run -d \
+                        -p $APP_PORT:3000 \
+                        --name $CONTAINER_NAME \
+                        --restart unless-stopped \
+                        $IMAGE_NAME
+                """
+            }
+        }
+
+        /* STAGE 5: Verification */
+        stage('Verify Deployment') {
+            agent { label 'ubuntu-deployer' }
+            steps {
+                retry(3) {
                     timeout(time: 1, unit: 'MINUTES') {
-                        def qualityGate = waitForQualityGate()
-                        if (qualityGate.status != 'OK') {
-                            error("❌ Quality Gate failed! Status: ${qualityGate.status}")
-                        }
+                        sh """
+                            curl -sSf http://localhost:$APP_PORT || exit 1
+                            echo "✅ Verification passed - app is responding"
+                        """
                     }
-                }
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $IMAGE_NAME .'
-            }
-        }
-
-        stage('Stop and Remove Existing Container') {
-            steps {
-                script {
-                    def running = sh(script: "docker ps -q -f name=$CONTAINER_NAME", returnStdout: true).trim()
-                    if (running) {
-                        sh "docker stop $CONTAINER_NAME"
-                        sh "docker rm $CONTAINER_NAME"
-                    }
-                }
-            }
-        }
-
-        stage('Run Docker Container') {
-            steps {
-                sh 'docker run -d -p $APP_PORT:3000 --name $CONTAINER_NAME $IMAGE_NAME'
-            }
-        }
-        
-        stage('Verify Application') {
-            steps {
-                script {
-                    sleep 5 // Wait for the app to start
-                    sh 'curl -f http://localhost:$APP_PORT || exit 1'
                 }
             }
         }
     }
     post {
         success {
-            echo "Deployment successful! App running at http://localhost:$APP_PORT"
+            echo "Deployment successful! App running at $DEPLOYMENT_URL"
         }
         failure {
             echo "Deployment failed!"
         }
-    }	
+    }
 }
