@@ -55,8 +55,8 @@ pipeline {
             }
         }
 
-        /* STAGE 4: Build & Deploy (Ubuntu Node) */
-        stage('Build & Deploy') {
+        /* STAGE 4: Build Docker Image */
+        stage('Build Docker Image') {
             agent { label 'ubuntu-deployer' }
             steps {
                 checkout([
@@ -68,30 +68,54 @@ pipeline {
                         url: 'https://github.com/parassetia001/secure-cicd-pipeline.git'
                     ]]
                 ])
-                
+                sh "docker build -t $IMAGE_NAME ."
+            }
+        }
+
+        /* STAGE 5: Stop & Remove Existing Container */
+        stage('Stop and Remove Existing Container') {
+            agent { label 'ubuntu-deployer' }
+            steps {
+                script {
+                    def running = sh(
+                        script: "docker ps -q -f name=$CONTAINER_NAME", 
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (running) {
+                        sh "docker stop $CONTAINER_NAME || true"
+                        sh "docker rm $CONTAINER_NAME || true"
+                    }
+                    echo "✅ Existing container stopped & removed (if any)"
+                }
+            }
+        }
+
+        /* STAGE 6: Deploy Application */
+        stage('Deploy Application') {
+            agent { label 'ubuntu-deployer' }
+            steps {
                 sh """
-                    # Build and deploy
-                    docker build -t $IMAGE_NAME .
-                    docker stop $CONTAINER_NAME || true
-                    docker rm $CONTAINER_NAME || true
                     docker run -d \
                         -p $APP_PORT:3000 \
                         --name $CONTAINER_NAME \
                         --restart unless-stopped \
                         $IMAGE_NAME
                 """
+                echo "🚀 Application deployed at $DEPLOYMENT_URL"
             }
         }
 
-        /* STAGE 5: Verification */
+        /* STAGE 7: Verify Deployment (Tests Public URL) */
         stage('Verify Deployment') {
-            agent { label 'ubuntu-deployer' }
+            agent any  // Can run on any node (testing external URL)
             steps {
                 retry(3) {
                     timeout(time: 1, unit: 'MINUTES') {
                         sh """
-                            curl -sSf http://localhost:$APP_PORT || exit 1
-                            echo "✅ Verification passed - app is responding"
+                            echo "Testing deployment at: $DEPLOYMENT_URL"
+                            curl -sSf $DEPLOYMENT_URL || exit 1
+                            echo "✅ Verification passed - app is responding at $DEPLOYMENT_URL"
                         """
                     }
                 }
